@@ -1,79 +1,39 @@
-name: Build Android APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-22.04
+- name: Setup Android SDK and NDK (修复路径+显式指定SDK_ROOT)
+  run: |
+    # 1. 定义核心路径（全程统一）
+    SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
+    NDK_ROOT="$HOME/.buildozer/android/platform/android-ndk-r25b"
     
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    # 2. 创建标准SDK目录结构（严格遵循android-sdk/cmdline-tools/latest层级）
+    mkdir -p "$SDK_ROOT/cmdline-tools"
+    cd "$SDK_ROOT/cmdline-tools"
     
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+    # 3. 下载并解压cmdline-tools到正确位置
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+    unzip -q commandlinetools-linux-9477386_latest.zip
+    # 关键：将解压后的cmdline-tools移动到latest（形成cmdline-tools/latest）
+    mv cmdline-tools latest
     
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev automake libltdl-dev
+    # 4. 下载并解压NDK（无需移动，解压即正确路径）
+    cd "$HOME/.buildozer/android/platform"
+    wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+    unzip -q android-ndk-r25b-linux.zip
     
-    - name: Install buildozer and cython
-      run: |
-        pip install --upgrade pip
-        pip install buildozer==1.5.0 cython==0.29.36  # 固定版本避免兼容问题
+    # 5. 创建兼容软链（适配buildozer旧版路径识别）
+    mkdir -p "$SDK_ROOT/tools/bin"
+    ln -sf "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$SDK_ROOT/tools/bin/sdkmanager"
+    ln -sf "$SDK_ROOT/cmdline-tools/latest/bin/avdmanager" "$SDK_ROOT/tools/bin/avdmanager" 2>/dev/null || true
     
-    - name: Download Chinese font
-      run: |
-        if [ ! -f msyh.ttf ]; then
-          wget -O msyh.ttf "https://github.com/lxgw/LxgwWenKai/releases/download/v1.315/LXGWWenKai-Regular.ttf"
-        fi
+    # 6. 接受许可+安装组件（核心：显式指定--sdk_root，避免识别失败）
+    export PATH="$SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+    yes | sdkmanager --sdk_root="$SDK_ROOT" --licenses || true
+    sdkmanager --sdk_root="$SDK_ROOT" \
+      "platform-tools" \
+      "platforms;android-33" \
+      "build-tools;33.0.0" \
+      "ndk;25.2.9519653"
     
-    - name: Setup Android SDK/NDK and accept licenses
-      run: |
-        # 创建 buildozer 目录结构
-        mkdir -p ~/.buildozer/android/platform
-        cd ~/.buildozer/android/platform
-        
-        # 下载并配置 SDK cmdline-tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-        unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk
-        mv android-sdk/cmdline-tools android-sdk/latest
-        mkdir -p android-sdk/tools/bin
-        ln -sf ~/.buildozer/android/platform/android-sdk/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-        ln -sf ~/.buildozer/android/platform/android-sdk/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager 2>/dev/null || true
-        
-        # 下载并配置 NDK r25b（修正核心错误：移除无效的mv命令）
-        wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-        unzip -q android-ndk-r25b-linux.zip  # 解压后直接生成 android-ndk-r25b 文件夹，无需移动
-        # 可选：给NDK创建软链，确保buildozer能识别路径
-        ln -sf android-ndk-r25b android-ndk
-        
-        # 接受 SDK 许可并安装组件（补充NDK组件）
-        export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
-        export ANDROID_NDK_ROOT=~/.buildozer/android/platform/android-ndk-r25b  # 显式指定NDK路径
-        export PATH="$ANDROID_SDK_ROOT/latest/bin:$PATH"
-        yes | sdkmanager --licenses || true
-        sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0" "ndk;25.2.9519653"
-    
-    - name: Build APK
-      run: |
-        # 构建时显式传递SDK/NDK路径，避免buildozer找不到
-        export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-        export ANDROID_NDK_ROOT="$HOME/.buildozer/android/platform/android-ndk-r25b"
-        export ANDROID_HOME="$ANDROID_SDK_ROOT"
-        export PATH="$ANDROID_SDK_ROOT/latest/bin:$PATH"
-        # 清理缓存+执行构建
-        buildozer android clean
-        buildozer android debug
-    
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: mytv-apk
-        path: bin/*.apk
+    # 7. 导出环境变量（供后续buildozer使用）
+    echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> $GITHUB_ENV
+    echo "ANDROID_NDK_ROOT=$NDK_ROOT" >> $GITHUB_ENV
+    echo "ANDROID_HOME=$SDK_ROOT" >> $GITHUB_ENV
