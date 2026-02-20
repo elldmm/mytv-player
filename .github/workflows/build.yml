@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 使用 Ubuntu 22.04 更稳定
+    runs-on: ubuntu-22.04
     
     steps:
     - name: Checkout code
@@ -18,7 +18,7 @@ jobs:
       with:
         python-version: '3.10'
     
-    - name: Install system dependencies
+    - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev automake libltdl-dev
@@ -34,23 +34,26 @@ jobs:
           wget -O msyh.ttf "https://github.com/lxgw/LxgwWenKai/releases/download/v1.315/LXGWWenKai-Regular.ttf"
         fi
     
+    - name: Setup Android SDK and accept licenses
+      run: |
+        mkdir -p ~/.buildozer/android/platform/android-sdk/cmdline-tools
+        cd ~/.buildozer/android/platform/android-sdk/cmdline-tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+        unzip -q commandlinetools-linux-9477386_latest.zip
+        mv cmdline-tools latest
+        export PATH="$PWD/latest/bin:$PATH"
+        yes | sdkmanager --licenses || true
+        sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
+    
     - name: Build APK
       run: |
-        # 设置环境变量避免交互式提示
-        export BUILDOZER_WARN_ON_ROOT=0
-        buildozer android debug 2>&1 | tee build.log || (
-          echo "Build failed, checking log..."
-          tail -100 build.log
-          exit 1
-        )
-      env:
-        ANDROID_SDK_HOME: ${{ runner.temp }}/android-sdk
+        export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
+        export ANDROID_HOME="$ANDROID_SDK_ROOT"
+        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+        buildozer android debug
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
-      if: always()  # 即使失败也上传日志
       with:
         name: mytv-apk
-        path: |
-          bin/*.apk
-          build.log
+        path: bin/*.apk
