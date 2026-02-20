@@ -18,43 +18,58 @@ jobs:
       with:
         python-version: '3.10'
     
-    - name: Install dependencies
+    - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev automake libltdl-dev
     
-    - name: Install buildozer and cython
+    - name: Install Python dependencies（固定版本）
       run: |
         pip install --upgrade pip
-        pip install buildozer cython
+        pip install buildozer==1.5.0 cython==0.29.36  # 避免新版兼容问题
     
     - name: Download Chinese font
       run: |
         if [ ! -f msyh.ttf ]; then
           wget -O msyh.ttf "https://github.com/lxgw/LxgwWenKai/releases/download/v1.315/LXGWWenKai-Regular.ttf"
         fi
+        # 复制字体到 assets 目录（适配 buildozer spec）
+        mkdir -p assets && cp msyh.ttf assets/
     
-    - name: Setup Android SDK and accept licenses
+    - name: Setup Android SDK/NDK（适配 buildozer 路径）
       run: |
-        mkdir -p ~/.buildozer/android/platform/android-sdk/cmdline-tools
-        cd ~/.buildozer/android/platform/android-sdk/cmdline-tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-        unzip -q commandlinetools-linux-9477386_latest.zip
-        mv cmdline-tools latest
-        export PATH="$PWD/latest/bin:$PATH"
-        yes | sdkmanager --licenses || true
-        sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
+        # 创建 buildozer 目录结构
+        mkdir -p ~/.buildozer/android/platform
+        cd ~/.buildozer/android/platform
         
-        # 创建 buildozer 期望的 tools/bin 目录结构
-        mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
-        ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-        ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager 2>/dev/null || true
+        # 下载 SDK cmdline-tools
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+        unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk
+        mv android-sdk/cmdline-tools android-sdk/latest
+        mkdir -p android-sdk/tools/bin
+        ln -sf ~/.buildozer/android/platform/android-sdk/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+        ln -sf ~/.buildozer/android/platform/android-sdk/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager 2>/dev/null || true
+        
+        # 下载 NDK r25b（和 spec 配置对齐）
+        wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+        unzip -q android-ndk-r25b-linux.zip -d .
+        mv android-ndk-r25b android-ndk-r25b
+        
+        # 接受 SDK 许可并安装组件
+        export ANDROID_SDK_ROOT=~/.buildozer/android/platform/android-sdk
+        export PATH="$ANDROID_SDK_ROOT/latest/bin:$PATH"
+        yes | sdkmanager --licenses || true
+        sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0" "ndk;25.2.9519653"
     
-    - name: Build APK
+    - name: Build APK（清理缓存+修复环境变量）
       run: |
         export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
+        export ANDROID_NDK_ROOT="$HOME/.buildozer/android/platform/android-ndk-r25b"
         export ANDROID_HOME="$ANDROID_SDK_ROOT"
-        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+        export PATH="$ANDROID_SDK_ROOT/latest/bin:$PATH"
+        # 清理 buildozer 缓存（避免旧文件干扰）
+        buildozer android clean
+        # 执行构建
         buildozer android debug
     
     - name: Upload APK
