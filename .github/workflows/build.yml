@@ -34,8 +34,16 @@ jobs:
           wget -O msyh.ttf "https://github.com/lxgw/LxgwWenKai/releases/download/v1.315/LXGWWenKai-Regular.ttf"
         fi
     
+    - name: Accept Android SDK licenses
+      run: |
+        mkdir -p ~/.buildozer/android/platform/android-sdk/cmdline-tools
+        yes | ~/.buildozer/android/platform/android-sdk/cmdline-tools/bin/sdkmanager --licenses || true
+    
     - name: Build APK
-      run: buildozer -v android debug
+      run: |
+        export ANDROIDSDK="$HOME/.buildozer/android/platform/android-sdk"
+        export ANDROIDNDK="$HOME/.buildozer/android/platform/android-ndk-r25b"
+        buildozer -v android debug
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
