@@ -3,74 +3,63 @@ name: Build Android APK
 on: [push, pull_request]
 
 jobs:
- build:
-   runs-on: ubuntu-latest
-   
-   steps:
-   - uses: actions/checkout@v4
-   
-   - name: Set up Python
-     uses: actions/setup-python@v5
-     with:
-       python-version: '3.10'
-   
-   - name: Install dependencies
-     run: |
-       sudo apt-get update
-       sudo apt-get install -y build-essential libffi-dev python3-dev openjdk-17-jdk unzip wget ant
-       pip install buildozer cython==0.29.36
-       pip install --upgrade pip setuptools
-   
-   - name: Setup Android SDK manually
-     run: |
-       ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-    
-       mkdir -p "$ANDROID_SDK_ROOT/tools/bin"
-       ln -s "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_SDK_ROOT/tools/bin/sdkmanager"
-       
- 
-       mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
-       cd "$ANDROID_SDK_ROOT/cmdline-tools"
-       wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-       unzip -q cmdline-tools.zip
-       mv cmdline-tools latest
-       rm -rf cmdline-tools.zip
-       
-    
-       export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
-       export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
-       export JAVA_HOME="/usr/lib/jvm/temurin-17-jdk-amd64"
-       
-    
-       mkdir -p "$ANDROID_SDK_ROOT/licenses"
-       echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
-       echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
-       
-   
-       $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses --sdk_root=$ANDROID_SDK_ROOT < /dev/null
-       $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --verbose "platform-tools" "build-tools;33.0.0" "platforms;android-33" "platforms;android-21" --sdk_root=$ANDROID_SDK_ROOT
-     shell: /usr/bin/bash -e {0}
-   
-   - name: Build Android APK with debug log
-     run: |
-       export JAVA_OPTS="-Xmx4g -XX:+UseG1GC"
-       export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
-       export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-       export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
-       export JAVA_HOME="/usr/lib/jvm/temurin-17-jdk-amd64"
-       
-     
-       echo "log_level = 2" > buildozer.spec
-       
-      
-       buildozer android debug --verbose
-     shell: /usr/bin/bash -e {0}
-   
-   - name: Upload APK and logs
-     uses: actions/upload-artifact@v4
-     with:
-       name: android-apk-and-logs
-       path: |
-         bin/*.apk
-         bin/*.log
-       if-no-files-found: warn
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libffi-dev python3-dev openjdk-17-jdk unzip wget
+          pip install buildozer cython
+        shell: /usr/bin/bash -e {0}
+
+      - name: Setup Android SDK manually
+        run: |
+          # 定义SDK根目录
+          ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
+          # 创建cmdline-tools目录并下载解压
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          cd "$ANDROID_SDK_ROOT/cmdline-tools"
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
+          unzip -q cmdline-tools.zip
+          mv cmdline-tools latest
+          rm -rf cmdline-tools.zip
+          # 核心：创建软链接兼容buildozer旧路径
+          mkdir -p "$ANDROID_SDK_ROOT/tools/bin"
+          ln -s "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_SDK_ROOT/tools/bin/sdkmanager"
+          # 配置环境变量
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+          export JAVA_HOME="/usr/lib/jvm/temurin-17-jdk-amd64"
+          # 配置SDK许可
+          mkdir -p "$ANDROID_SDK_ROOT/licenses"
+          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
+          # 安装必要SDK组件
+          sdkmanager --licenses < /dev/null
+          sdkmanager "platform-tools" "build-tools;33.0.0" "platforms;android-33"
+        shell: /usr/bin/bash -e {0}
+
+      - name: Build Android APK
+        run: |
+          export JAVA_OPTS="-Xmx4g -XX:+UseG1GC"
+          export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
+          export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
+          export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+          export JAVA_HOME="/usr/lib/jvm/temurin-17-jdk-amd64"
+          # 执行构建，完全保留你原有命令
+          buildozer android debug
+        shell: /usr/bin/bash -e {0}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: bin/*.apk
+        if-no-files-found: warn
