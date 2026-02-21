@@ -27,11 +27,13 @@ jobs:
        mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools/latest"
        cd "$ANDROID_SDK_ROOT"
        
- 
        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
        unzip -q cmdline-tools.zip
-      
-       mv cmdline-tools/* "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+       
+       mv cmdline-tools/bin "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+       mv cmdline-tools/lib "$ANDROID_SDK_ROOT/cmdline-tools/latest/"
+       mv cmdline-tools/NOTICE.txt "$ANDROID_SDK_ROOT/cmdline-tools/latest/" 2>/dev/null || true
+       mv cmdline-tools/source.properties "$ANDROID_SDK_ROOT/cmdline-tools/latest/" 2>/dev/null || true
        rm -rf cmdline-tools cmdline-tools.zip
        
        export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
@@ -40,23 +42,22 @@ jobs:
        mkdir -p "$ANDROID_SDK_ROOT/licenses"
        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
        echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
-
+       
        yes | sdkmanager --licenses > /dev/null 2>&1
        sdkmanager --verbose "platform-tools" "build-tools;33.0.2" "platforms;android-33"
      shell: /usr/bin/bash -e {0}
    
    - name: Build Android APK
      run: |
-      
        export JAVA_OPTS="-Xmx4g -XX:+UseG1GC"
        export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
        export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
-      
+       
        echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
        echo "PATH: $PATH"
        which sdkmanager || echo "sdkmanager not found!"
-        
+       
        buildozer android debug -v
      shell: /usr/bin/bash -e {0}
    
@@ -65,5 +66,4 @@ jobs:
      with:
        name: android-apk
        path: bin/*.apk
-     
        if-no-files-found: warn
