@@ -45,7 +45,6 @@ jobs:
         yes | sdkmanager --licenses || true
         sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
         
-        # 创建 buildozer 期望的 tools/bin 目录结构
         mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
         ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
         ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager 2>/dev/null || true
@@ -55,6 +54,8 @@ jobs:
         export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
         export ANDROID_HOME="$ANDROID_SDK_ROOT"
         export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
+        export JAVA_OPTS="-Xmx4g"
+        export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
         buildozer android debug
     
     - name: Upload APK
