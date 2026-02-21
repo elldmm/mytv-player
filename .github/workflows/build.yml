@@ -1,54 +1,33 @@
-name: Build Android APK
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-    
-    - name: Install dependencies
+    - name: Setup Android SDK and NDK
       run: |
-        sudo apt-get update
-        sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev automake libltdl-dev
-    
-    - name: Install buildozer and cython
-      run: |
-        pip install --upgrade pip
-        pip install buildozer cython
-    
-    - name: Download Chinese font
-      run: |
-        if [ ! -f msyh.ttf ]; then
-          wget -O msyh.ttf "https://github.com/lxgw/LxgwWenKai/releases/download/v1.315/LXGWWenKai-Regular.ttf"
-        fi
-    
-    - name: Setup Android SDK and accept licenses
-      run: |
+        # 创建目录
+        mkdir -p ~/.buildozer/android/platform
+        
+        # 下载并解压 NDK（使用 -q 静默模式，但显示错误）
+        cd ~/.buildozer/android/platform
+        echo "Downloading NDK..."
+        wget -q --show-progress https://dl.google.com/android/repository/android-ndk-r25b-linux.zip || wget https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+        echo "Unzipping NDK..."
+        unzip -q android-ndk-r25b-linux.zip
+        rm android-ndk-r25b-linux.zip
+        echo "NDK ready"
+        
+        # SDK 设置
         mkdir -p ~/.buildozer/android/platform/android-sdk/cmdline-tools
         cd ~/.buildozer/android/platform/android-sdk/cmdline-tools
         wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
         unzip -q commandlinetools-linux-9477386_latest.zip
         mv cmdline-tools latest
         export PATH="$PWD/latest/bin:$PATH"
+        
+        # 接受许可证并安装组件
         yes | sdkmanager --licenses || true
         sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
         
+        # 创建 buildozer 期望的 tools/bin 链接
         mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
-        ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-        ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager 2>/dev/null || true
-    
+        ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager 2>/dev/null || true
+
     - name: Build APK
       run: |
         export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
@@ -56,10 +35,5 @@ jobs:
         export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
         export JAVA_OPTS="-Xmx4g"
         export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
+        # 跳过 buildozer 的自动下载，直接使用已安装的
         buildozer android debug
-    
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: mytv-apk
-        path: bin/*.apk
