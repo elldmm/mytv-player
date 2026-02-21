@@ -17,17 +17,18 @@ jobs:
    - name: Install dependencies
      run: |
        sudo apt-get update
-       sudo apt-get install -y build-essential libffi-dev python3-dev openjdk-17-jdk unzip wget
-       pip install buildozer cython
+       sudo apt-get install -y build-essential libffi-dev python3-dev openjdk-17-jdk unzip wget ant
+       pip install buildozer cython==0.29.36
+       pip install --upgrade pip setuptools
    
    - name: Setup Android SDK manually
      run: |
        ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
-   
+    
        mkdir -p "$ANDROID_SDK_ROOT/tools/bin"
        ln -s "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "$ANDROID_SDK_ROOT/tools/bin/sdkmanager"
        
-    
+ 
        mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
        cd "$ANDROID_SDK_ROOT/cmdline-tools"
        wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
@@ -35,7 +36,7 @@ jobs:
        mv cmdline-tools latest
        rm -rf cmdline-tools.zip
        
-     
+    
        export ANDROID_SDK_ROOT="$ANDROID_SDK_ROOT"
        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
        export JAVA_HOME="/usr/lib/jvm/temurin-17-jdk-amd64"
@@ -45,12 +46,12 @@ jobs:
        echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_SDK_ROOT/licenses/android-sdk-license"
        echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_SDK_ROOT/licenses/android-sdk-preview-license"
        
-    
+   
        $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses --sdk_root=$ANDROID_SDK_ROOT < /dev/null
-       $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --verbose "platform-tools" "build-tools;33.0.0" "platforms;android-33" --sdk_root=$ANDROID_SDK_ROOT
+       $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --verbose "platform-tools" "build-tools;33.0.0" "platforms;android-33" "platforms;android-21" --sdk_root=$ANDROID_SDK_ROOT
      shell: /usr/bin/bash -e {0}
    
-   - name: Build Android APK
+   - name: Build Android APK with debug log
      run: |
        export JAVA_OPTS="-Xmx4g -XX:+UseG1GC"
        export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
@@ -58,11 +59,18 @@ jobs:
        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
        export JAVA_HOME="/usr/lib/jvm/temurin-17-jdk-amd64"
        
-       buildozer android debug
+     
+       echo "log_level = 2" > buildozer.spec
+       
+      
+       buildozer android debug --verbose
      shell: /usr/bin/bash -e {0}
    
-   - name: Upload APK
+   - name: Upload APK and logs
      uses: actions/upload-artifact@v4
      with:
-       name: android-apk
-       path: bin/*.apk
+       name: android-apk-and-logs
+       path: |
+         bin/*.apk
+         bin/*.log
+       if-no-files-found: warn
