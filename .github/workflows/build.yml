@@ -49,17 +49,36 @@ jobs:
         ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
         ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager 2>/dev/null || true
     
+    - name: Download Android NDK manually
+      run: |
+        mkdir -p ~/.buildozer/android/platform
+        cd ~/.buildozer/android/platform
+        wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
+        unzip -q android-ndk-r25b-linux.zip
+        rm android-ndk-r25b-linux.zip
+    
     - name: Build APK
       run: |
         export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
         export ANDROID_HOME="$ANDROID_SDK_ROOT"
+        export ANDROIDNDK="$HOME/.buildozer/android/platform/android-ndk-r25b"
         export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
         export JAVA_OPTS="-Xmx4g"
         export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
-        buildozer android debug
+        export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+        export PATH=$JAVA_HOME/bin:$PATH
+        buildozer android debug 2>&1 | tee build.log || tail -n 200 build.log
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: mytv-apk
         path: bin/*.apk
+    
+    - name: Upload build log
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: build-log
+        path: build.log
