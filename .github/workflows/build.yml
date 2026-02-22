@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     
     steps:
     - name: Checkout code
@@ -26,19 +27,29 @@ jobs:
     - name: Install buildozer and cython
       run: |
         pip install --upgrade pip
-        pip install buildozer cython
+        pip install buildozer==1.5.0 cython==0.29.36
     
     - name: Download Chinese font
       run: |
         if [ ! -f msyh.ttf ]; then
-          wget -O msyh.ttf "https://github.com/lxgw/LxgwWenKai/releases/download/v1.315/LXGWWenKai-Regular.ttf"
+          wget --timeout=30 -O msyh.ttf "https://github.com/lxgw/LxgwWenKai/releases/download/v1.315/LXGWWenKai-Regular.ttf" || echo "Font download failed"
         fi
     
-    - name: Setup Android SDK and accept licenses
+    - name: Cache Android SDK and NDK
+      uses: actions/cache@v4
+      id: android-cache
+      with:
+        path: |
+          ~/.buildozer/android/platform/android-sdk
+          ~/.buildozer/android/platform/android-ndk-r25b
+        key: ${{ runner.os }}-android-ndk-r25b-sdk-33-v1
+    
+    - name: Setup Android SDK
+      if: steps.android-cache.outputs.cache-hit != 'true'
       run: |
         mkdir -p ~/.buildozer/android/platform/android-sdk/cmdline-tools
         cd ~/.buildozer/android/platform/android-sdk/cmdline-tools
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+        wget -q --timeout=60 https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
         unzip -q commandlinetools-linux-9477386_latest.zip
         mv cmdline-tools latest
         export PATH="$PWD/latest/bin:$PATH"
@@ -46,28 +57,44 @@ jobs:
         sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
         
         mkdir -p ~/.buildozer/android/platform/android-sdk/tools/bin
-        ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+        ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager ~/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager 2>/dev/null || true
         ln -sf ~/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/avdmanager ~/.buildozer/android/platform/android-sdk/tools/bin/avdmanager 2>/dev/null || true
     
-    - name: Download Android NDK manually
+    - name: Download Android NDK
+      if: steps.android-cache.outputs.cache-hit != 'true'
+      timeout-minutes: 10
       run: |
         mkdir -p ~/.buildozer/android/platform
         cd ~/.buildozer/android/platform
-        wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-        unzip -q android-ndk-r25b-linux.zip
-        rm android-ndk-r25b-linux.zip
+        wget --timeout=120 -O ndk.zip "https://dl.google.com/android/repository/android-ndk-r25b-linux.zip"
+        unzip -q ndk.zip
+        rm ndk.zip
     
     - name: Build APK
+      timeout-minutes: 30
       run: |
         export ANDROID_SDK_ROOT="$HOME/.buildozer/android/platform/android-sdk"
         export ANDROID_HOME="$ANDROID_SDK_ROOT"
         export ANDROIDNDK="$HOME/.buildozer/android/platform/android-ndk-r25b"
         export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-        export JAVA_OPTS="-Xmx4g"
-        export GRADLE_OPTS="-Xmx4g -XX:MaxMetaspaceSize=512m"
         export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
         export PATH=$JAVA_HOME/bin:$PATH
-        buildozer android debug 2>&1 | tee build.log || tail -n 200 build.log
+        export JAVA_OPTS="-Xmx3g -XX:+UseG1GC"
+        export GRADLE_OPTS="-Xmx3g -XX:MaxMetaspaceSize=512m -XX:+UseG1GC"
+        
+        rm -rf .buildozer/android/app
+        buildozer android debug 2>&1 | tee build.log
+    
+    - name: Find APK files
+      run: |
+        echo "=== Searching for APK files ==="
+        find . -name "*.apk" -type f 2>/dev/null
+        echo "=== bin directory ==="
+        ls -la bin/ 2>/dev/null || echo "No bin directory"
+        echo "=== buildozer outputs ==="
+        ls -la .buildozer/android/app/build/outputs/apk/ 2>/dev/null || echo "No outputs directory"
+        mkdir -p bin
+        find . -name "*.apk" -type f -exec cp {} bin/ \; 2>/dev/null || true
     
     - name: Upload APK
       uses: actions/upload-artifact@v4
@@ -75,10 +102,11 @@ jobs:
       with:
         name: mytv-apk
         path: bin/*.apk
+        if-no-files-found: warn
     
     - name: Upload build log
       uses: actions/upload-artifact@v4
-      if: failure()
+      if: always()
       with:
         name: build-log
         path: build.log
