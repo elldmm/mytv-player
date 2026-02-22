@@ -9,13 +9,13 @@ from kivy.utils import platform
 from kivy.properties import StringProperty
 from kivy.uix.popup import Popup
 from kivy.core.text import LabelBase
+from kivy.uix.widget import Widget
 import json
 import os
 import time
 
 IS_ANDROID = platform == 'android'
 
-# 注册字体
 try:
     if os.path.exists('msyh.ttf'):
         LabelBase.register(name='MyFont', fn_regular='msyh.ttf')
@@ -62,6 +62,7 @@ class TVPlayerApp(App):
         self.history_file = os.path.join(self.data_dir, 'history.json')
         self.channels = self.load_channels()
         self.history = self.load_history()
+        self.webview = None
     
     def get_data_dir(self):
         if IS_ANDROID:
@@ -120,14 +121,15 @@ class TVPlayerApp(App):
     
     def build(self):
         Window.clearcolor = (0.08, 0.08, 0.12, 1)
+        Window.bind(on_keyboard=self.on_key)
         self.root_layout = BoxLayout(orientation='vertical', padding=12, spacing=10)
         self.build_main_ui()
         return self.root_layout
     
     def build_main_ui(self):
         self.root_layout.clear_widgets()
+        self.webview = None
         
-        # 标题
         header = BoxLayout(size_hint_y=None, height=55, spacing=10)
         header.add_widget(Label(
             text='📺 我的电视', 
@@ -138,7 +140,6 @@ class TVPlayerApp(App):
         ))
         self.root_layout.add_widget(header)
         
-        # 功能按钮栏
         func_bar = BoxLayout(size_hint_y=None, height=45, spacing=8)
         func_bar.add_widget(Button(
             text='📜 历史', 
@@ -156,7 +157,6 @@ class TVPlayerApp(App):
         ))
         self.root_layout.add_widget(func_bar)
         
-        # 状态标签
         self.status_label = Label(
             text=f'共 {len(self.channels)} 个频道 | 历史 {len(self.history)} 条', 
             font_size='12sp', 
@@ -167,7 +167,6 @@ class TVPlayerApp(App):
         )
         self.root_layout.add_widget(self.status_label)
         
-        # 频道列表
         scroll = ScrollView()
         cols = 3 if Window.width > 600 else 2
         grid = GridLayout(cols=cols, spacing=10, size_hint_y=None, padding=8)
@@ -190,9 +189,8 @@ class TVPlayerApp(App):
         scroll.add_widget(grid)
         self.root_layout.add_widget(scroll)
         
-        # 底部提示
         self.root_layout.add_widget(Label(
-            text='点击频道打开央视频官网播放', 
+            text='点击频道打开播放', 
             font_size='11sp', 
             size_hint_y=None, 
             height=35, 
@@ -203,15 +201,140 @@ class TVPlayerApp(App):
     def play_channel(self, name, url):
         self.current_url = url
         self.add_to_history(name, url)
-        self.status_label.text = f'正在打开: {name}'
+        self.status_label.text = f'正在播放: {name}'
         
         if IS_ANDROID:
-            self.open_android_browser(url)
+            self.show_android_webview(url)
         else:
             import webbrowser
             webbrowser.open(url)
     
-    def open_android_browser(self, url):
+    def show_android_webview(self, url):
+        try:
+            from jnius import autoclass, cast
+            from android.runnable import run_on_ui_thread
+            
+            @run_on_ui_thread
+            def create_webview():
+                try:
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    WebView = autoclass('android.webkit.WebView')
+                    WebSettings = autoclass('android.webkit.WebSettings')
+                    ViewGroup = autoclass('android.view.ViewGroup')
+                    LayoutParams = autoclass('android.view.ViewGroup$LayoutParams')
+                    LinearLayout = autoclass('android.widget.LinearLayout')
+                    Button = autoclass('android.widget.Button')
+                    Gravity = autoclass('android.view.Gravity')
+                    Color = autoclass('android.graphics.Color')
+                    WebViewClient = autoclass('android.webkit.WebViewClient')
+                    
+                    activity = PythonActivity.mActivity
+                    
+                    if not activity:
+                        return
+                    
+                    self.webview_layout = LinearLayout(activity)
+                    self.webview_layout.setOrientation(LinearLayout.VERTICAL)
+                    self.webview_layout.setBackgroundColor(Color.parseColor('#14141f'))
+                    
+                    top_bar = LinearLayout(activity)
+                    top_bar.setOrientation(LinearLayout.HORIZONTAL)
+                    top_bar.setBackgroundColor(Color.parseColor('#1f1f2e'))
+                    top_bar_params = LinearLayout.LayoutParams(
+                        LayoutParams.MATCH_PARENT,
+                        int(120 * activity.getResources().getDisplayMetrics().density)
+                    )
+                    top_bar.setLayoutParams(top_bar_params)
+                    
+                    back_btn = Button(activity)
+                    back_btn.setText('← 返回频道列表')
+                    back_btn.setTextColor(Color.WHITE)
+                    back_btn.setBackgroundColor(Color.parseColor('#2d4a6f'))
+                    back_btn_params = LinearLayout.LayoutParams(
+                        LayoutParams.WRAP_CONTENT,
+                        LayoutParams.MATCH_PARENT
+                    )
+                    back_btn_params.weight = 1.0
+                    back_btn.setLayoutParams(back_btn_params)
+                    
+                    class BackClickListener(autoclass('android.view.View$OnClickListener')):
+                        def onClick(self, view):
+                            self.close_webview()
+                    
+                    back_btn.setOnClickListener(BackClickListener())
+                    top_bar.addView(back_btn)
+                    
+                    self.webview_layout.addView(top_bar)
+                    
+                    self.webview = WebView(activity)
+                    webview_params = LinearLayout.LayoutParams(
+                        LayoutParams.MATCH_PARENT,
+                        LayoutParams.MATCH_PARENT
+                    )
+                    webview_params.weight = 1.0
+                    self.webview.setLayoutParams(webview_params)
+                    
+                    settings = self.webview.getSettings()
+                    settings.setJavaScriptEnabled(True)
+                    settings.setDomStorageEnabled(True)
+                    settings.setUserAgentString('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0')
+                    
+                    self.webview.setWebViewClient(WebViewClient())
+                    self.webview.loadUrl(url)
+                    
+                    self.webview_layout.addView(self.webview)
+                    
+                    content_view = activity.findViewById(autoclass('android.R$id').content)
+                    if content_view:
+                        self.original_content = content_view.getChildAt(0)
+                        content_view.removeAllViews()
+                        content_view.addView(self.webview_layout)
+                    
+                except Exception as e:
+                    print(f"WebView error: {e}")
+                    self.open_external_browser(url)
+            
+            create_webview()
+            
+        except Exception as e:
+            print(f"JNI error: {e}")
+            self.open_external_browser(url)
+    
+    def close_webview(self):
+        try:
+            from jnius import autoclass
+            from android.runnable import run_on_ui_thread
+            
+            @run_on_ui_thread
+            def do_close():
+                try:
+                    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                    activity = PythonActivity.mActivity
+                    
+                    if self.webview:
+                        self.webview.stopLoading()
+                        self.webview.loadUrl('about:blank')
+                        self.webview.clearHistory()
+                        self.webview = None
+                    
+                    content_view = activity.findViewById(autoclass('android.R$id').content)
+                    if content_view and hasattr(self, 'original_content'):
+                        content_view.removeAllViews()
+                        content_view.addView(self.original_content)
+                    
+                    self.webview_layout = None
+                    self.status_label.text = f'共 {len(self.channels)} 个频道 | 历史 {len(self.history)} 条'
+                    
+                except Exception as e:
+                    print(f"Close error: {e}")
+            
+            do_close()
+            
+        except Exception as e:
+            print(f"Close JNI error: {e}")
+            self.build_main_ui()
+    
+    def open_external_browser(self, url):
         try:
             from jnius import autoclass
             from android.runnable import run_on_ui_thread
@@ -228,17 +351,12 @@ class TVPlayerApp(App):
                     activity = PythonActivity.mActivity
                     activity.startActivity(intent)
                 except Exception as e:
-                    print(f"打开浏览器失败: {e}")
+                    print(f"Browser error: {e}")
             
             open_browser()
+            
         except Exception as e:
-            print(f"JNI 调用失败: {e}")
-            # 备用方案
-            try:
-                import webbrowser
-                webbrowser.open(url)
-            except:
-                pass
+            print(f"External browser error: {e}")
     
     def show_history(self, instance):
         content = BoxLayout(orientation='vertical', padding=10)
@@ -290,6 +408,18 @@ class TVPlayerApp(App):
             font_name='MyFont'
         )
         Popup(title='关于', content=content, size_hint=(0.8, 0.6)).open()
+    
+    def on_key(self, window, key, scancode, codepoint, modifier):
+        if key in (27, 1001, 4):
+            if self.webview:
+                self.close_webview()
+                return True
+            for widget in Window.children:
+                if isinstance(widget, Popup):
+                    widget.dismiss()
+                    return True
+            return False
+        return False
     
     def on_pause(self):
         return True
